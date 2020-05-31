@@ -1,0 +1,46 @@
+- hosts:
+  - all
+  gather_facts: False
+  vars:
+    random_number: "{{ 100 | random }}"
+  tasks:
+  - name: set hostname
+    hostname:
+      name: "clusterpi-{{ random_number }}"
+    become: true
+  - name: reboot pi
+    become: true
+    reboot:
+  - name: update system
+    apt:
+      name: "*"
+      state: latest
+      update_cache: yes
+    become: true
+  - name: download k3s
+    get_url:
+      url: https://get.k3s.io
+      dest: /tmp/getk3s.sh
+- hosts:
+  - master
+  tasks:
+  - name: install k3s for master
+    command: sh /tmp/getk3s.sh
+    become: true
+  - name: retrieve k8s join key
+    slurp:
+      src: "/var/lib/rancher/k3s/server/node-token"
+    register: slurped_user_data
+    become: true
+  - name: Decode data and store as fact
+    set_fact:
+      master_key: "{{ slurped_user_data.content | b64decode }}"
+- hosts:
+  - slaves
+  tasks:
+  - name: install k3s for slave
+    command: sh /tmp/getk3s.sh
+    environment:
+      K3S_URL: "https://{{ k3s_master }}:6443"
+      K3S_TOKEN: "{{ hostvars['%s' | format(k3s_master) ]['master_key'] }}"
+    become: true
